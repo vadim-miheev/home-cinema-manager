@@ -3,6 +3,7 @@
 // Pins numbers
 #define PC_L A4
 #define PC_R A5
+#define POT_GND A0
 
 // Array keys
 #define OFF_KEY 0
@@ -30,7 +31,9 @@ void setup() {
   // put your setup code here, to run once:
   pinMode(PC_L, INPUT);
   pinMode(PC_R, INPUT);
-  analogReference(INTERNAL);
+  pinMode(POT_GND, OUTPUT);
+  //analogReference(INTERNAL);
+  analogReference(EXTERNAL);
   Serial.begin(9600);
   int ChanelsStats[3] = {0,0,0};
   int winnersStats[3] = {1,1,1};
