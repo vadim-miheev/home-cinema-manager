@@ -12,6 +12,7 @@
 
 //Settings
 #define TURN_OFF_SEQUENCE 360
+//#define TURN_OFF_SEQUENCE 20
 #define MEASUREMENT_SENSITIVITY_PC 10
 #define WINNING_SEQUENCE 3
 
@@ -26,9 +27,12 @@ unsigned long last_time_ir;
 
 int prev_pc_l = 0;
 int prev_pc_r = 0;
+int prev_pc_val_l = 0;
+int prev_pc_val_r = 0;
 
 void setup() {
   // put your setup code here, to run once:
+  analogReference(INTERNAL);
   pinMode(PC_L, INPUT);
   pinMode(PC_R, INPUT);
   pinMode(POT_GND, OUTPUT);
@@ -88,17 +92,22 @@ int currentChanel() {
   int c_l = analogRead(PC_L);
   int c_r = analogRead(PC_R);
   int sens = MEASUREMENT_SENSITIVITY_PC;
-  bool sound_in_pc_l = abs(prev_pc_l - c_l) > sens;
-  bool sound_in_pc_r = abs(prev_pc_r - c_r) > sens;
+  bool sound_in_pc_l = abs(prev_pc_val_l - c_l) > sens;
+  bool sound_in_pc_r = abs(prev_pc_val_r - c_r) > sens;
+
+  //Serial.print("c_l abs: ");
+  //Serial.println(abs(prev_pc_val_l - c_l));
+  //Serial.print("c_r abs: ");
+  //Serial.println(abs(prev_pc_val_r - c_r));
+
+  prev_pc_val_l = c_l;
+  prev_pc_val_r = c_r;
   
   if(sound_in_pc_l || sound_in_pc_r){
     //Serial.println(PC_KEY);
     result = PC_KEY;
   }
   
-  prev_pc_l = c_l;
-  prev_pc_r = c_r;
-
   return result;
   
 }
