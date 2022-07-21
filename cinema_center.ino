@@ -1,139 +1,128 @@
 #include <IRremote.h>
 
 // Pins numbers
-#define PC_L A4
-#define PC_R A5
+#define SOUND_L A4
+#define SOUND_R A5
 #define POT_GND A0
 
-// Array keys
-#define OFF_KEY 0
-#define PC_KEY 1
-#define BT_KEY 2
-
 //Settings
-#define TURN_OFF_SEQUENCE 360
-//#define TURN_OFF_SEQUENCE 20
-#define MEASUREMENT_SENSITIVITY_PC 10
-#define WINNING_SEQUENCE 3
+#define TURN_ON_SEQUENCE_VAL 3 //Количество замеров подряд с положительным результатом необходимое для включения
+#define TURN_OFF_SEQUENCE_VAL 360 //Количество замеров подряд с отрицательным результатом необходимое для отключения
+#define MEASUREMENT_SENSITIVITY 10
+
 
 IRsend irsend;
-int testCount = 0;
-int ChanelsStats[3];
-int winnersStats[3];
-int prevChanel = 0;
-int currentCinemaCenterChanel = 0;
-unsigned long last_time_winner;
 unsigned long last_time_ir;
+unsigned long last_time_compare;
+unsigned int loop_results_for_ON = 0;
+unsigned int loop_results_for_OFF = 0;
+unsigned int turn_on_sequence = 0;
+unsigned int turn_off_sequence = 0;
+bool sound_detected_by_last_check = false;
+bool current_system_state_is_on = false;
+int prev_s_l = 0;
+int prev_s_r = 0;
 
-int prev_pc_l = 0;
-int prev_pc_r = 0;
-int prev_pc_val_l = 0;
-int prev_pc_val_r = 0;
 
 void setup() {
-  // put your setup code here, to run once:
-  analogReference(INTERNAL);
-  pinMode(PC_L, INPUT);
-  pinMode(PC_R, INPUT);
-  pinMode(POT_GND, OUTPUT);
-  //analogReference(INTERNAL);
-  analogReference(EXTERNAL);
-  Serial.begin(9600);
-  int ChanelsStats[3] = {0,0,0};
-  int winnersStats[3] = {1,1,1};
-  last_time_winner = millis();
-  last_time_ir = millis();
+    // Arduino
+    pinMode(SOUND_L, INPUT);
+    pinMode(SOUND_R, INPUT);
+    pinMode(POT_GND, OUTPUT);
+    analogReference(EXTERNAL);
+    Serial.begin(9600);
+    
+    // App
+    last_time_ir = millis();
+    last_time_compare = millis();
+    sendIrSignal(false);
 }
 
 void loop() {
-  ChanelsStats[currentChanel()]++;
-  
-  if (millis() - last_time_winner > 300){
-    last_time_winner = millis();
-    
-    int winner = checkWinner();
-    if(prevChanel != winner) { //Проверка нужно ли сбрасывать статистику побед подряд
-      for (int i = 0; i < (sizeof(ChanelsStats) / 2); i++){
-        winnersStats[i] = 0;
-      }
+    checkSound();
+    if (millis() - last_time_compare > 300){
+        last_time_compare = millis();
+        compareOnAndOf();
+        checkSequences();
+        
+        loop_results_for_ON = 0;
+        loop_results_for_OFF = 0;
     }
-    winnersStats[winner]++;
-    int currentChanelSequence = winnersStats[winner];
-    if ((currentChanelSequence == WINNING_SEQUENCE && winner != OFF_KEY) || currentChanelSequence == TURN_OFF_SEQUENCE){ //Условие нужного колличества побед подряд
-      sendIrSignal(winner);
-    }
-    prevChanel = winner; //Обновление "Предыдущего победителя"
-    for (int i = 0; i < (sizeof(ChanelsStats) / 2); i++){
-        ChanelsStats[i] = 0;
-    }
-  }
 }
 
-int checkWinner () {
-  int winner = OFF_KEY;
-
-  if (ChanelsStats[PC_KEY] != 0 && ChanelsStats[OFF_KEY] / ChanelsStats[PC_KEY] < 9){ //Аналогично ^^
-      winner = PC_KEY;
-  }
-  
-  Serial.print("Count off: ");
-  Serial.println(ChanelsStats[OFF_KEY]);
-  Serial.print("Count pc: ");
-  Serial.println(ChanelsStats[PC_KEY]);
-  Serial.print("Winner: ");
-  Serial.println(winner);
-  return winner;
+// На основании собранных данных из compareOnAndOf() отправляем IR сигнал
+void checkSequences() {
+    if (sound_detected_by_last_check) {
+        if (turn_on_sequence == TURN_ON_SEQUENCE_VAL && !current_system_state_is_on) {
+            current_system_state_is_on = true;
+            sendIrSignal(true);
+        } else if (turn_on_sequence > 2000) {
+            turn_on_sequence = 1000; // защита от переполнения переменной
+        }
+    } else {
+        if (turn_off_sequence == TURN_OFF_SEQUENCE_VAL) {
+            current_system_state_is_on = false;
+            sendIrSignal(false);
+        } else if (turn_off_sequence > 2000) {
+            turn_off_sequence = 1000; // защита от переполнения переменной
+            sendIrSignal(false); // защита от случайного включения
+        }
+    }
 }
 
-//Проверка каналов на наличие звука. 
-//Возвращает текущий канал.
-int currentChanel() {
-  int result = OFF_KEY;
-  int c_l = analogRead(PC_L);
-  int c_r = analogRead(PC_R);
-  int sens = MEASUREMENT_SENSITIVITY_PC;
-  bool sound_in_pc_l = abs(prev_pc_val_l - c_l) > sens;
-  bool sound_in_pc_r = abs(prev_pc_val_r - c_r) > sens;
+// Сравниваем данные собранные с помощью checkSound() и сохраняем результат в счетчик
+void compareOnAndOf() {
+    bool sound_detected = loop_results_for_ON != 0 && loop_results_for_OFF / loop_results_for_ON < 9;
+    if (sound_detected != sound_detected_by_last_check) {
+        turn_on_sequence = 0;
+        turn_off_sequence = 0;
+        sound_detected_by_last_check = sound_detected;
+    }
+    if (sound_detected) {
+        turn_on_sequence++;
+    } else {
+        turn_off_sequence++;
+    }
 
-  //Serial.print("c_l abs: ");
-  //Serial.println(abs(prev_pc_val_l - c_l));
-  //Serial.print("c_r abs: ");
-  //Serial.println(abs(prev_pc_val_r - c_r));
-
-  prev_pc_val_l = c_l;
-  prev_pc_val_r = c_r;
-  
-  if(sound_in_pc_l || sound_in_pc_r){
-    //Serial.println(PC_KEY);
-    result = PC_KEY;
-  }
-  
-  return result;
-  
+    Serial.print("Count OFF: ");
+    Serial.println(loop_results_for_OFF);
+    Serial.print("Count ON: ");
+    Serial.println(loop_results_for_ON);
+    Serial.print("Winner: ");
+    Serial.println(sound_detected ? "ON" : "OFF");
+    Serial.println("----------------");
 }
 
-//Отправляет на выбранный канал сигнал с повторением 9-10 раз
-void sendIrSignal (int channel) {
-  if (currentCinemaCenterChanel != channel) {
-    currentCinemaCenterChanel = channel;
-    
+// Проверям есть ли звук в данный момент времени и сохраняем результат в счетчик 
+void checkSound() {
+    int s_l = analogRead(SOUND_L);
+    int s_r = analogRead(SOUND_R);
+    int sens = MEASUREMENT_SENSITIVITY;
+    bool there_is_sound_in_l = abs(prev_s_l - s_l) > sens;
+    bool there_is_sound_in_r = abs(prev_s_r - s_r) > sens;
+    prev_s_l = s_l;
+    prev_s_r = s_r; 
+
+    if(there_is_sound_in_l || there_is_sound_in_r) {
+        loop_results_for_ON++;
+    } else {
+        loop_results_for_OFF++;
+    }
+}
+
+// Отправляем IR сигнал (on|off) с повторением 9-10 раз
+void sendIrSignal (bool on) {
     Serial.print("Send IR: ");
-    Serial.println(channel);
-    
+    Serial.println(on ? "ON" : "OFF");
     last_time_ir = millis();
     while(millis() - last_time_ir < 500){ //время повторения IR сигнала
-      if ((millis() - last_time_ir) % 50 == 0) { //пауза 50 миллисекунд между каждой отправкой команды
-        switch (channel){
-          case 0 : 
-            //Serial.println("OFF");
-            irsend.sendRC5(0xD0C, 12);
-            break;
-          case 1 : 
-            //Serial.println("PC");
-            irsend.sendRC5(0x53F, 12); // CD режим
-            // irsend.sendRC5(0x6BF, 12); // CD-R TAPE режим           
+        if ((millis() - last_time_ir) % 50 == 0) { //пауза 50 миллисекунд между каждой отправкой команды
+            if (on){
+                irsend.sendRC5(0x53F, 12); // CD режим
+                // irsend.sendRC5(0x6BF, 12); // CD-R TAPE режим
+            } else {
+                irsend.sendRC5(0xD0C, 12);  
+            }
         }
-      }
     }
-  }
 }
